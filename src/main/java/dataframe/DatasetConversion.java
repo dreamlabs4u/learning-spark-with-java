@@ -1,18 +1,21 @@
 package dataframe;
 
-import org.apache.spark.sql.*;
-
 import java.io.Serializable;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
 
-import static org.apache.spark.sql.functions.col;
+import org.apache.spark.api.java.function.FilterFunction;
+import org.apache.spark.sql.*;
 
 //
 // Explore interoperability between DataFrame and Dataset. Note that Dataset
 // is covered in much greater detail in the 'dataset' directory.
 //
 public class DatasetConversion {
+
+    public static String DATE_TIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
     //
     // This must be a JavaBean in order for Spark to infer a schema for it
@@ -23,13 +26,15 @@ public class DatasetConversion {
         private double sales;
         private double discount;
         private String state;
+        private String date;
 
-        public Cust(int id, String name, double sales, double discount, String state) {
+        public Cust(int id, String name, double sales, double discount, String state, String date) {
             this.id = id;
             this.name = name;
             this.sales = sales;
             this.discount = discount;
             this.state = state;
+            this.date = date;
         }
 
         public int getId() {
@@ -71,6 +76,10 @@ public class DatasetConversion {
         public void setState(String state) {
             this.state = state;
         }
+
+        public String getDate() { return date; }
+
+        public void setDate(String date) { this.date = date; }
     }
 
     //
@@ -118,11 +127,12 @@ public class DatasetConversion {
         // Create a container of the JavaBean instances
         //
         List<Cust> data = Arrays.asList(
-                new Cust(1, "Widget Co", 120000.00, 0.00, "AZ"),
-                new Cust(2, "Acme Widgets", 410500.00, 500.00, "CA"),
-                new Cust(3, "Widgetry", 410500.00, 200.00, "CA"),
-                new Cust(4, "Widgets R Us", 410500.00, 0.0, "CA"),
-                new Cust(5, "Ye Olde Widgete", 500.00, 0.0, "MA")
+                new Cust(1, "Widget Co", 120000.00, 0.00, "AZ", "2018-07-07 12:12:12"),
+                new Cust(2, "Acme Widgets", 410500.00, 500.00, "CA", "2018-07-07 13:12:12"),
+                new Cust(3, "Widgetry", 410500.00, 200.00, "CA", "2018-07-07 14:12:12"),
+                new Cust(4, "Widgets R Us", 410500.00, 0.0, "CA", "2018-07-07 15:12:12"),
+                // Adding erroneous row
+                new Cust(5, "Ye Olde Widgete", 500.00, 0.0, "MA", "sfsdfsfsdf-07-07 16:12:12")
         );
         //
         // Use the encoder and the container of JavaBean instances to create a
@@ -136,35 +146,24 @@ public class DatasetConversion {
         System.out.println("*** here is the data");
         ds.show();
 
-        //
-        // Querying a Dataset of any type results in a
-        // DataFrame (i.e. Dastaset<Row>)
-        //
+        //quick way : row.getString(0) with give Datetime string
+        FilterFunction<Row> filter = row -> validateDf(row.getString(0));
+        Dataset<Row> filteredDataset = ds.toDF().filter(filter);
 
-        Dataset<Row> smallerDF =
-                ds.select("sales", "state").filter(col("state").equalTo("CA"));
-
-        System.out.println("*** here is the dataframe schema");
-        smallerDF.printSchema();
-
-        System.out.println("*** here is the data");
-        smallerDF.show();
-
-        //
-        // But a Dataset<Row> can be converted back to a Dataset of some other
-        // type by using another bean encoder
-        //
-
-        Encoder<StateSales> stateSalesEncoder = Encoders.bean(StateSales.class);
-
-        Dataset<StateSales> stateSalesDS = smallerDF.as(stateSalesEncoder);
-
-        System.out.println("*** here is the schema inferred from the StateSales bean");
-        stateSalesDS.printSchema();
-
-        System.out.println("*** here is the data");
-        stateSalesDS.show();
+        System.out.println("*** filtered Data");
+        filteredDataset.show();
 
         spark.stop();
+    }
+
+    private static Boolean validateDf(String dateStr) {
+        try {
+            LocalDateTime parsedDateTime = LocalDateTime.parse(dateStr, DateTimeFormatter.ofPattern(DATE_TIME_FORMAT));
+            System.out.println("Parsed DateTime: " + parsedDateTime);
+            return true;
+        } catch(Exception ex) {
+            System.out.println(String.format("Unable to parse the date time for %s", dateStr));
+            return false;
+        }
     }
 }
